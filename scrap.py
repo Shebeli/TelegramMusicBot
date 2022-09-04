@@ -1,28 +1,33 @@
 from typing import Dict, List, Tuple
 import os
+from cachetools import cached, TTLCache
 
 import requests
 from bs4 import BeautifulSoup
 
 import settings
 
+cache = TTLCache(maxsize=80, ttl=172800)
+
 
 def validate_artist(artist: str) -> bool:
     return True if artist in get_artists() else False
 
 
+@cached(cache)
 def get_artist_songs_info(artist: str, page: int = 1) -> List[Dict]:
     bs = _artist_bs(artist, page)
     data = [
         {
             "id": art.a.attrs['href'].split("/")[-2],
-            "title": art.a.attrs['title'].split("دانلود ")[-1],
+            "title": art.a.attrs['title'].split("دانلود ")[-1].replace(artist, "").replace("آهنگ", ""),
             "url": art.a.attrs['href'],
         }
         for art in bs.find_all("article")]
     return data
 
 
+@cached(cache)
 def get_artists() -> List[Tuple[str, str]]:
     bs = BeautifulSoup(
         (requests.get(settings.BASE_URL)).content, 'html.parser')
@@ -66,14 +71,8 @@ def download_artist_album(artist: str, save_dir: str = None) -> None:
     for i in range(int(page_numbers)):
         download_songs_from_page(artist, i+1, save_dir)
 
-# songs = [
-#   [("Meow Meow Meow", "Cat")],
-#   [("Bark Bark Bark", "Dog")]
-# ]
-#
-#
 
-
+@cached(cache)
 def all_artist_songs_info(artist: str) -> List[List[Dict]]:
     bs = _artist_bs(artist)
     last_page_url = bs.find("div", class_="pnavifa fxmf").find_all(
@@ -86,6 +85,7 @@ def all_artist_songs_info(artist: str) -> List[List[Dict]]:
     return artist_songs
 
 
+@cached(cache)
 def _artist_bs(artist, page=1):
     artist = artist.replace(" ", "-")
     url = f"{settings.ARTIST_URL}/{artist}/"
@@ -102,10 +102,17 @@ def _download_music(music_url, file_dir):
     file_name = music_url.split('/')[-1].replace("%20", ' ')
     file_full_path = os.path.join(file_dir, file_name)
     if not os.path.isfile(file_full_path):
-        file = open(file_full_path, "wb")
-        _download_file(music_url, file)
-        print(file_name, "Downloaded!")
-        return file_full_path
+        with open(file_full_path, "wb") as file:
+            _download_file(music_url, file)
+            print(file_name, "Downloaded!")
+            return file_full_path
+    # sometimes request for downloads throws a broken exception & connection error  and the file stays empty.
+    if os.path.getsize(file_full_path) == 0:
+        print(file_name, "is empty, redownloading.")
+        with open(file_full_path, "wb") as file:
+            _download_file(music_url, file)
+            print(file_name, "Downloaded!")
+            return file_full_path
     print(file_name, "is already downloaded, skipping.")
     return file_full_path
 
@@ -129,11 +136,14 @@ def _download_file(url, file):
 #   ?
 #
 # Telegram Bot:
-#   1- Cache artist lists and their song list to speed up the   vprocess
+#   1- Cache artist lists and their song list to speed up the process ✅
 #   2- Remove song and artist name from songs title
 #   3- Handle errors for downloading, timeout for uploading, so the bot doesnt stop
 #   4- download full album?
 #   5- Display the percentage of download or upload process in chat
-
+#   6- There are some exceptions in download links, for eg theres two download pages that have two songs in them and
+#   they have different html layout for scraping the song link.
+#   https://music-fa.com/download-song/25222/
+#   https://music-fa.com/download-song/50071/
 
 # https://music-fa.com/artist/%d9%87%d9%85%d8%a7%db%8c%d9%88%d9%86-%d8%b4%d8%ac%d8%b1%db%8c%d8%a7%d9%86/page/3/

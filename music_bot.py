@@ -55,32 +55,33 @@ async def list_artists(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for i in range(0, int(len(artists)) - 1, 2):
         artist1, artist2 = artists[i], artists[i+1]
         line = [
-                InlineKeyboardButton(artist1, callback_data=artist1),
-                InlineKeyboardButton(artist2, callback_data=artist2)
+            InlineKeyboardButton(artist1, callback_data=artist1),
+            InlineKeyboardButton(artist2, callback_data=artist2)
         ]
         keyboard.append(line)
     if len(artists) % 2 != 0:
-        keyboard.append([InlineKeyboardButton(artists[-1])],
-                        callback_data=artists[-1])
+        keyboard.append([
+            InlineKeyboardButton(artists[-1], callback_data=artists[-1])
+        ])
     if page == 1:
         line = [
-                InlineKeyboardButton("خروج", callback_data="exit"),
-                InlineKeyboardButton(
-                    "-->", callback_data=f"artists_page_{page+1}")
+            InlineKeyboardButton("خروج", callback_data="exit"),
+            InlineKeyboardButton(
+                "-->", callback_data=f"artists_page_{page+1}")
         ]
-    elif page == len(paginated_artists) - 1:
+    elif page == len(paginated_artists):
         line = [
-                InlineKeyboardButton(
-                    "<--", callback_data=f"artists_page_{page-1}"),
-                InlineKeyboardButton("خروج", callback_data="exit")
+            InlineKeyboardButton(
+                "<--", callback_data=f"artists_page_{page-1}"),
+            InlineKeyboardButton("خروج", callback_data="exit")
         ]
     else:
         line = [
-                InlineKeyboardButton(
-                    "<--", callback_data=f"artists_page_{page-1}"),
-                InlineKeyboardButton("خروج", callback_data="exit"),
-                InlineKeyboardButton(
-                    "-->", callback_data=f"artists_page_{page+1}"),
+            InlineKeyboardButton(
+                "<--", callback_data=f"artists_page_{page-1}"),
+            InlineKeyboardButton("خروج", callback_data="exit"),
+            InlineKeyboardButton(
+                "-->", callback_data=f"artists_page_{page+1}"),
         ]
     keyboard.append(line)
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -142,8 +143,9 @@ async def list_artist_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         keyboard.append(line)
     if len(songs) % 2 != 0:
-        keyboard.append([InlineKeyboardButton(songs[-1].get("title"))],
-                        callback_data=songs[-1].get("id"))
+        keyboard.append([
+            InlineKeyboardButton(
+                songs[-1].get("title"), callback_data=songs[-1].get("id"))])
     if page == 1:
         line = [
             InlineKeyboardButton("خروج", callback_data="exit"),
@@ -185,9 +187,20 @@ async def download_selected_song(update: Update, context: ContextTypes.DEFAULT_T
     await status_msg.edit_text(text="در حال ارسال آهنگ ...")
     file = open(file_path, 'rb')
     await update.effective_chat.send_audio(file, write_timeout=300)
-    await status_msg.edit_text(
-        text="آهنگ دانلود شد. \n میتوانید از لیست آهنگ هایی که هنوز در لیست بالا موجود هستند آهنگ دانلود کنید در غیر این صورت دکمه خروج را فشار دهید")
+    if not context.user_data.get("download_inform"):
+        await status_msg.edit_text(
+            text="آهنگ دانلود شد. \n میتوانید از لیست آهنگ هایی که هنوز در لیست بالا موجود هستند آهنگ دانلود کنید در غیر این صورت دکمه خروج را فشار دهید")
+        context.user_data['download_inform'] = True
+    else:
+        await status_msg.delete()
     return SONG_ROUTE
+
+
+async def secret(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_photo(
+        chat_id=update.effective_chat.id,
+        photo=open(SECRET_FILE_PATH, 'rb')
+    )
 
 
 async def exit(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -210,6 +223,7 @@ def main():
         entry_points=[CommandHandler('start', start)],  # /begin
         states={
             ARTIST_ROUTE: [
+                CommandHandler('secret', secret),
                 CallbackQueryHandler(
                     list_artists, pattern=r"^artists_page_\d+$"),
                 CallbackQueryHandler(input_artist, pattern=r"^artist_songs$"),
