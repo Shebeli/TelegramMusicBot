@@ -1,4 +1,5 @@
 import logging
+from requests import exceptions
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -15,13 +16,16 @@ from settings import TELEGRAM_BOT_TOKEN, SECRET_FILE_PATH, SAVE_DIR
 from scrap import download_song, get_artists, validate_artist, all_artist_songs_info
 
 
+handlers = [logging.FileHandler("musicbot.log"), logging.StreamHandler()]
+
 logging.basicConfig(
+    handlers=handlers,
     format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-START_ROUTES, END_ROUTES, ARTIST_ROUTE, SONG_ROUTE = range(4)
+ARTIST_ROUTE, SONG_ROUTE = range(2)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -45,6 +49,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_artists(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    await query.edit_message_text("در حال دریافت لیست خوانندگان ...")
     artists = get_artists()
     paginated_artists = [artists[i:i+10]
                          for i in range(0, len(artists), 10)]  # need to be cached\
@@ -123,9 +128,18 @@ async def set_artist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def list_artist_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     artist = context.user_data.get("requested_artist")
+    query = update.callback_query
+    if query:
+        await query.answer()
+        await query.edit_message_text("در حال دریافت لیست آهنگ ها ...")
+    else:
+        msg_id = context.chat_data.get("start_message")
+        await context.bot.edit_message_text(
+            text="در حال دریافت لیست آهنگ ها ...",
+            chat_id=update.effective_chat.id,
+            message_id=msg_id,)
     songs = all_artist_songs_info(artist)  # need to be cached\
     last_page_index = len(songs)
-    query = update.callback_query
     if query:
         await query.answer()
         page = int(query.data.split("_")[-1])
@@ -174,7 +188,7 @@ async def list_artist_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.edit_message_text(
             chat_id=update.effective_chat.id,
             message_id=msg_id,
-            text="یک آهنگ را انتخاب کنید",
+            text=f"خواننده انتخاب شده:\n{artist}\nیک آهنگ را انتخاب کنید.",
             reply_markup=reply_markup)
     return SONG_ROUTE
 
@@ -183,7 +197,15 @@ async def download_selected_song(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     status_msg = await update.effective_chat.send_message(text="در حال دانلود آهنگ ...")
-    file_path = download_song(query.data, SAVE_DIR)
+    logger.info(f"User {update.effective_user.full_name} started the bot")
+    try:
+        file_path = download_song(query.data, SAVE_DIR)
+        logger.info(
+            f"User {update.effective_user.full_name} requested song: {file_path.split('/')[-1]}")
+    except exceptions.ChunkedEncodingError or exceptions.SSLError:
+        await update.effective_chat.send_message("دانلود به مشکل خورد لطفا دوباره سعی کنید!")
+        await status_msg.delete()
+        return SONG_ROUTE
     await status_msg.edit_text(text="در حال ارسال آهنگ ...")
     file = open(file_path, 'rb')
     await update.effective_chat.send_audio(file, write_timeout=300)
@@ -223,7 +245,6 @@ def main():
         entry_points=[CommandHandler('start', start)],  # /begin
         states={
             ARTIST_ROUTE: [
-                CommandHandler('secret', secret),
                 CallbackQueryHandler(
                     list_artists, pattern=r"^artists_page_\d+$"),
                 CallbackQueryHandler(input_artist, pattern=r"^artist_songs$"),
@@ -242,7 +263,11 @@ def main():
             CommandHandler("exit", exit, )
         ],
     )
+    secret_command = CommandHandler('secret', secret)
+    # help = CommandHandler()
+    # info = CommandHandler
     application.add_handler(conv_handler)
+    application.add_handler(secret_command)
     application.run_polling()
 
 

@@ -118,9 +118,10 @@ def _download_music(music_url, file_dir):
 
 
 def _download_file(url, file):
-    downloaded_file = requests.get(url).content
-    file.write(downloaded_file)
-    file.close()
+    with requests.get(url) as response:
+        downloaded_file = response.content
+        file.write(downloaded_file)
+
 
 # Music scraper:
 #   Check for redundent files so it won't download them again ✅
@@ -142,8 +143,15 @@ def _download_file(url, file):
 #   4- download full album?
 #   5- Display the percentage of download or upload process in chat
 #   6- There are some exceptions in download links, for eg theres two download pages that have two songs in them and
-#   they have different html layout for scraping the song link.
-#   https://music-fa.com/download-song/25222/
-#   https://music-fa.com/download-song/50071/
-
+#       they have different html layout for scraping the song link.
+#       https://music-fa.com/download-song/25222/
+#       https://music-fa.com/download-song/50071/
+#   7- Whenever a music is getting downloaded or uploaded by server, it should inform the user about the process which should 
+#       be based on if its cached or not.
+#   8- Incase user starts a conversation and the conversation is not finished(for eg user deletes the chat with bot),
+#        the user cannot continue the conversation.
+#       so the conversation should either end compleletly or another conversation replaces  the old one if they type /start
+#   9- Possible a return button to previous route for conversation handler?
+#   10- logger doesnt log data into file
+#   11- some songs still have other artists 
 # https://music-fa.com/artist/%d9%87%d9%85%d8%a7%db%8c%d9%88%d9%86-%d8%b4%d8%ac%d8%b1%db%8c%d8%a7%d9%86/page/3/
