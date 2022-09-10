@@ -1,5 +1,5 @@
 from typing import Optional, List, Union
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -17,7 +17,7 @@ class Song:
 class Artist:
     name: str
     url: str
-    songs: List[Song] = []
+    songs: List[Song] = field(default_factory=list)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(\"{self.name}\")"

@@ -1,6 +1,6 @@
 from email import message
 import requests
-from logger import logger
+
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -12,12 +12,12 @@ from telegram.ext import (
     ConversationHandler,
     CallbackQueryHandler
 )
-from models import Artist
+from models import Artist, Song
 
 from utils import paginate_list
 from settings import TELEGRAM_BOT_TOKEN, SECRET_FILE_PATH, SAVE_DIR
-from scrap import download_song, all_artists, get_artist, validate_artist, all_artist_songs
-
+from scrap import download_song, all_artists, get_artist, validate_artist, all_artist_songs_paginated
+from logger import logger
 
 ARTIST, SONG, ARTIST_SELECTION = range(3)
 
@@ -105,10 +105,9 @@ async def input_artist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def set_artist_by_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    artist_url = query.data
-    artist_name = artist_url.split("/").replace("-", "")  # همایون شجریان
-    artist = Artist(artist_name, artist_url)
+    artist = query.data
     context.user_data.update({"requested_artist": artist})
+    update.callback_query = None
     await list_artist_songs(update, context)
 
 
@@ -129,33 +128,29 @@ async def list_artist_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     artist = context.user_data.get("requested_artist")
     query = update.callback_query
     if query:
+        page = int(query.data.split("_")[-1])
         await query.answer()
         await query.edit_message_text("در حال دریافت لیست آهنگ ها ...")
     else:
+        page = 1
         message = context.chat_data.get("start_message")
         await message.edit_text(text="در حال دریافت لیست آهنگ ها ...")
-    songs = all_artist_songs(artist).songs
-    paginated_songs = paginate_list(songs)
+    paginated_songs = all_artist_songs_paginated(artist)
     last_page_index = len(paginated_songs)
-    if query:
-        await query.answer()
-        page = int(query.data.split("_")[-1])
-    else:
-        page = 1
     keyboard = []
     page_songs = paginated_songs[page-1]
-    for i in range(0, int(len(songs)) - 1, 2):
+    for i in range(0, int(len(paginated_songs)) - 1, 2):
         line = [
             InlineKeyboardButton(page_songs[i].name,
-                                 callback_data=page_songs[i].url),
+                                 callback_data=page_songs[i]),
             InlineKeyboardButton(page_songs[i+1].name,
-                                 callback_data=page_songs[i+1].url)
+                                 callback_data=page_songs[i+1])
         ]
         keyboard.append(line)
     if len(page_songs) % 2 != 0:
         keyboard.append([
             InlineKeyboardButton(
-                page_songs[-1].get("title"), callback_data=page_songs[-1].url)])
+                page_songs[-1].get("title"), callback_data=page_songs[-1])])
     if page == 1:
         line = [
             InlineKeyboardButton("خروج", callback_data="exit"),
@@ -191,13 +186,13 @@ async def download_selected_song(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     status_msg = await update.effective_chat.send_message(text="در حال دانلود آهنگ ...")
-    logger.info(f"User {update.effective_user.full_name} started the bot")
     try:
-        file_path = download_song(query.data, SAVE_DIR)
+        song_url = query.data.url
+        file_path = download_song(song_url, SAVE_DIR)
         file_name = file_path.split('/')[-1]
-        logger.info(
-            f"User {update.effective_user.full_name} requested song: {file_name}")
+        logger.info(f"User {update.effective_user.full_name} downloaded {file_name}")
     except requests.exceptions.ChunkedEncodingError or requests.exceptions.SSLError:
+        logger.error(f"User {update.effective_user.full_name} failed to download {file_name}")
         await update.effective_chat.send_message("دانلود به مشکل خورد لطفا دوباره سعی کنید!")
         await status_msg.delete()
         return SONG
@@ -231,23 +226,18 @@ async def exit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-def callback_is_artist(callback_data):
-    return isinstance(callback_data, Artist)
-
 
 def main():
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).arbitrary_callback_data(True).build()
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],  # /begin
+        entry_points=[CommandHandler('start', start)],
         states={
             ARTIST: [
+                CallbackQueryHandler(set_artist_by_callback,
+                                     pattern=Artist),
                 CallbackQueryHandler(
                     list_artists, pattern=r"^artists_page_\d+$"),
                 CallbackQueryHandler(input_artist, pattern=r"^artist_songs$"),
-                # CallbackQueryHandler(
-                #     set_artist_by_name, pattern=r"^[ آابپتثجچحخدذرزژسشصضطظعغفقکگلمنوهیئ]+$"),
-                CallbackQueryHandler(set_artist_by_callback,
-                                     pattern=callback_is_artist),
             ],
             ARTIST_SELECTION: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND,
@@ -255,19 +245,17 @@ def main():
             ],
             SONG: [
                 CallbackQueryHandler(
-                    list_artist_songs, pattern=r"^songs_\d+$"),
+                    download_selected_song, pattern=Song),
                 CallbackQueryHandler(
-                    download_selected_song, pattern=r"^https?://music-fa.com/download-song/")
+                    list_artist_songs, pattern=r"^songs_\d+$"),
             ]
         },
         fallbacks=[
             CallbackQueryHandler(exit, pattern=r"^exit$"),
             CommandHandler("exit", exit, )
         ],
-    )  # ^[ آابپتثجچحخدذرزژسشصضطظعغفقکگلمنوهیئ]+$"
+    )
     secret_command = CommandHandler('secret', secret)
-    # help = CommandHandler()
-    # info = CommandHandler
     application.add_handler(conv_handler)
     application.add_handler(secret_command)
     application.run_polling()
@@ -275,18 +263,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-# SAMPLE KEYBOARD
-# [
-#         [
-#             InlineKeyboardButton("Artist 1", callback_data="Meow"),
-#             InlineKeyboardButton("Artist 2 Dogie", callback_data="awoo"),
-#             InlineKeyboardButton("Artist 3 Dogie", callback_data="bark"),
-#         ],
-#         [
-#             InlineKeyboardButton("Artist 4", callback_data="3"),
-#             InlineKeyboardButton("Artist 5", callback_data="3"),
-#             InlineKeyboardButton("Artist 6", callback_data="3")
-#         ]
-# ]

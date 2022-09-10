@@ -17,12 +17,11 @@ def all_artists() -> List[Artist]:
     bs = BeautifulSoup(
         (requests.get(settings.BASE_URL)).content, 'html.parser')
     artists = bs.find("aside", class_="rwr").find_all('li')
-    return [Artist(artist.text, artist.a['href']) for artist in artists]
+    return [Artist(artist.text, artist.a.attrs['href']) for artist in artists]
 
 
 @cached(cache)
-def _artist_bs(artist: str, page: int = 1) -> BeautifulSoup:
-    artist = get_artist(artist)
+def _artist_bs(artist: Artist, page: int = 1) -> BeautifulSoup:
     url = artist.url
     if page == 1:
         response = requests.get(url)
@@ -32,7 +31,7 @@ def _artist_bs(artist: str, page: int = 1) -> BeautifulSoup:
 
 
 @cached(cache)
-def get_artist_page_songs(artist: str, page: int = 1) -> List[Song]:
+def get_artist_page_songs(artist: Artist, page: int = 1) -> List[Song]:
     bs = _artist_bs(artist, page)
     return [Song
             (
@@ -90,24 +89,23 @@ def download_artist_album(artist: str, save_dir: str = None) -> None:
 
 
 @cached(cache)
-def all_artist_songs(artist: str) -> Artist:
+def all_artist_songs_paginated(artist: Artist) -> List[List[Song]]:
     bs = _artist_bs(artist)
     last_page_url = bs.find("div", class_="pnavifa fxmf").find_all(
         "a")[-1].attrs['href']
     page_numbers = last_page_url.split('/')[-2]
-    artist = get_artist(artist)
-    for i in range(int(page_numbers)):
-        page_songs = get_artist_page_songs(artist.name, i+1)
-        for song in page_songs:
-            artist.songs.append(song)
-    return artist
+    paginated_songs = []
+    for i in range(int(page_numbers)): # the size of pagination is 10 since 10 songs are displayed per page on website
+        page_songs = get_artist_page_songs(artist, i+1)
+        paginated_songs.append(page_songs)
+    return paginated_songs
 
 
 @cached(cache)
 def get_artist(artist: str) -> Artist:
-    for artist_ in all_artists():
-        if artist_.name == artist:
-            return artist
+    for arti in all_artists():
+        if arti.name == artist:
+            return arti
     raise Exception("Given artist name wasn't found")
 
 
@@ -134,37 +132,3 @@ def _download_file(url: str, file: BinaryIO) -> None:
     with requests.get(url) as response:
         downloaded_file = response.content
         file.write(downloaded_file)
-
-
-# Music scraper:
-#   Check for redundent files so it won't download them again ✅
-#   write the download song function for a specific song with audio quality choice ✅
-#   download all published songs from an artist can be done in two ways:
-#       1- using download songs from page function,
-#          can download song from each page very effienctly but limited to song cover quality ✅
-#       2- using download song from a url function, more elegant approach and able to select quality
-#          but it requires more processing
-#   Refactor✅
-#
-# GUI:
-#   ?
-#
-# Telegram Bot:
-#   1- Cache artist lists and their song list to speed up the process ✅
-#   2- Remove song and artist name from songs title
-#   3- Handle errors for downloading, timeout for uploading, so the bot doesnt stop
-#   4- download full album?
-#   5- Display the percentage of download or upload process in chat
-#   6- There are some exceptions in download links, for eg theres two download pages that have two songs in them and
-#       they have different html layout for scraping the song link.
-#       https://music-fa.com/download-song/25222/
-#       https://music-fa.com/download-song/50071/
-#   7- Whenever a music is getting downloaded or uploaded by server, it should inform the user about the process which should
-#       be based on if its cached or not.
-#   8- Incase user starts a conversation and the conversation is not finished(for eg user deletes the chat with bot),
-#        the user cannot continue the conversation.
-#       so the conversation should either end compleletly or another conversation replaces  the old one if they type /start
-#   9- Possible a return button to previous route for conversation handler?
-#   10- logger doesnt log data into file
-#   11- some songs still have other artists
-# https://music-fa.com/artist/%d9%87%d9%85%d8%a7%db%8c%d9%88%d9%86-%d8%b4%d8%ac%d8%b1%db%8c%d8%a7%d9%86/page/3/
