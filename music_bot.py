@@ -46,7 +46,7 @@ async def list_artists(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("در حال دریافت لیست خوانندگان ...")
     artists = all_artists()
     paginated_artists = paginate_list(artists)
-    page = int(query.data.split("_")[-1])  # eg. artists_3
+    page = int(query.data.split("_")[-1]) 
     keyboard = []
     artists = paginated_artists[page-1]
     for i in range(0, int(len(artists)) - 1, 2):
@@ -66,7 +66,7 @@ async def list_artists(update: Update, context: ContextTypes.DEFAULT_TYPE):
         line = [
             InlineKeyboardButton("خروج", callback_data="exit"),
             InlineKeyboardButton(
-                "-->", callback_data=f"artists_page_{page+1}")
+                "-->", callback_data=f"artists_page_{page+1}"),
         ]
     elif page == len(paginated_artists):
         line = [
@@ -104,12 +104,13 @@ async def input_artist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def set_artist_by_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    # await query.answer()
     artist = query.data
     context.user_data.update({"requested_artist": artist})
     update.callback_query = None
+    logger.info({f"User {query.from_user.full_name} chose {context.user_data.get('requested_artist')}"})
     await list_artist_songs(update, context)
-
+    return SONG
 
 async def set_artist_by_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     artist = update.message.text
@@ -122,7 +123,7 @@ async def set_artist_by_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ARTIST_SELECTION
     context.user_data.update({"requested_artist": get_artist(artist)})
     await list_artist_songs(update, context)
-
+    return SONG
 
 async def list_artist_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     artist = context.user_data.get("requested_artist")
@@ -130,7 +131,7 @@ async def list_artist_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query:
         page = int(query.data.split("_")[-1])
         await query.answer()
-        await query.edit_message_text("در حال دریافت لیست آهنگ ها ...")
+        # await query.edit_message_text("در حال دریافت لیست آهنگ ها ...")
     else:
         page = 1
         message = context.chat_data.get("start_message")
@@ -139,7 +140,7 @@ async def list_artist_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     last_page_index = len(paginated_songs)
     keyboard = []
     page_songs = paginated_songs[page-1]
-    for i in range(0, int(len(paginated_songs)) - 1, 2):
+    for i in range(0, int(len(page_songs)) - 1, 2):
         line = [
             InlineKeyboardButton(page_songs[i].name,
                                  callback_data=page_songs[i]),
@@ -150,7 +151,7 @@ async def list_artist_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(page_songs) % 2 != 0:
         keyboard.append([
             InlineKeyboardButton(
-                page_songs[-1].get("title"), callback_data=page_songs[-1])])
+                page_songs[-1].name, callback_data=page_songs[-1])])
     if page == 1:
         line = [
             InlineKeyboardButton("خروج", callback_data="exit"),
@@ -236,8 +237,8 @@ def main():
                 CallbackQueryHandler(set_artist_by_callback,
                                      pattern=Artist),
                 CallbackQueryHandler(
-                    list_artists, pattern=r"^artists_page_\d+$"),
-                CallbackQueryHandler(input_artist, pattern=r"^artist_songs$"),
+                    list_artists, pattern="^artists_page_\d+$"),
+                CallbackQueryHandler(input_artist, pattern="^artist_songs$"),
             ],
             ARTIST_SELECTION: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND,
@@ -247,12 +248,12 @@ def main():
                 CallbackQueryHandler(
                     download_selected_song, pattern=Song),
                 CallbackQueryHandler(
-                    list_artist_songs, pattern=r"^songs_\d+$"),
+                    list_artist_songs, pattern="^songs_\d+$"), #songs_1
             ]
         },
         fallbacks=[
-            CallbackQueryHandler(exit, pattern=r"^exit$"),
-            CommandHandler("exit", exit, )
+            CallbackQueryHandler(exit, pattern="^exit$"),
+            CommandHandler("exit", exit)
         ],
     )
     secret_command = CommandHandler('secret', secret)

@@ -7,7 +7,7 @@ class Song:
     id: int
     name: str
     url: str
-    artist: Optional['Artist']
+    artist: 'Artist' = None
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(name: '{self.name}', id: {self.id})"

@@ -20,7 +20,6 @@ def all_artists() -> List[Artist]:
     return [Artist(artist.text, artist.a.attrs['href']) for artist in artists]
 
 
-@cached(cache)
 def _artist_bs(artist: Artist, page: int = 1) -> BeautifulSoup:
     url = artist.url
     if page == 1:
@@ -31,14 +30,20 @@ def _artist_bs(artist: Artist, page: int = 1) -> BeautifulSoup:
 
 
 @cached(cache)
+def get_artist(artist: str) -> Artist:
+    for arti in all_artists():
+        if arti.name == artist:
+            return arti
+    raise Exception("Given artist name wasn't found")
+
+
 def get_artist_page_songs(artist: Artist, page: int = 1) -> List[Song]:
     bs = _artist_bs(artist, page)
     return [Song
             (
                 id=song.a.attrs['href'].split("/")[-2],
-                name=song.a.attrs['title'].split(
-                    "دانلود ").replace("آهنگ", ""),
-                url=song.a.attrs['href']
+                name=song.a.attrs['title'].replace("دانلود آهنگ ", ""),
+                url=song.a.attrs['href'],
             )
             for song in bs.find_all("article")]  # songs
 
@@ -88,29 +93,22 @@ def download_artist_album(artist: str, save_dir: str = None) -> None:
         download_songs_from_page(artist, i+1, save_dir)
 
 
-@cached(cache)
 def all_artist_songs_paginated(artist: Artist) -> List[List[Song]]:
     bs = _artist_bs(artist)
     last_page_url = bs.find("div", class_="pnavifa fxmf").find_all(
         "a")[-1].attrs['href']
     page_numbers = last_page_url.split('/')[-2]
     paginated_songs = []
-    for i in range(int(page_numbers)): # the size of pagination is 10 since 10 songs are displayed per page on website
+    # the size of pagination is 10 since 10 songs are displayed per page on website
+    for i in range(int(page_numbers)):
         page_songs = get_artist_page_songs(artist, i+1)
         paginated_songs.append(page_songs)
     return paginated_songs
 
 
-@cached(cache)
-def get_artist(artist: str) -> Artist:
-    for arti in all_artists():
-        if arti.name == artist:
-            return arti
-    raise Exception("Given artist name wasn't found")
-
-
 def _download_music(music_url: str, file_dir: str) -> str:
-    file_name = music_url.split('/')[-1].replace("%20", ' ') # /home/user/همایون شجریان/Irane Man.mp3
+    file_name = music_url.split('/')[-1].replace("%20", ' ')
+    # /home/user/همایون شجریان/Irane Man.mp3
     file_full_path = os.path.join(file_dir, file_name)
     if not os.path.isfile(file_full_path):
         with open(file_full_path, "wb") as file:
