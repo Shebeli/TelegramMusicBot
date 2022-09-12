@@ -13,7 +13,7 @@ cache = TTLCache(maxsize=80, ttl=172800)
 
 
 @cached(cache)
-def all_artists() -> List[Artist]:
+def get_all_artists() -> List[Artist]:
     bs = BeautifulSoup(
         (requests.get(settings.BASE_URL)).content, 'html.parser')
     artists = bs.find("aside", class_="rwr").find_all('li')
@@ -31,7 +31,7 @@ def _artist_bs(artist: Artist, page: int = 1) -> BeautifulSoup:
 
 @cached(cache)
 def get_artist(artist: str) -> Artist:
-    for arti in all_artists():
+    for arti in get_all_artists():
         if arti.name == artist:
             return arti
     raise Exception("Given artist name wasn't found")
@@ -49,7 +49,7 @@ def get_artist_page_songs(artist: Artist, page: int = 1) -> List[Song]:
 
 
 def validate_artist(artist: str) -> bool:
-    return True if artist in all_artists() else False
+    return True if artist in get_all_artists() else False
 
 
 def download_songs_from_page(artist: str, page: int = 1, save_dir: str = None) -> None:
@@ -99,14 +99,14 @@ def all_artist_songs_paginated(artist: Artist) -> List[List[Song]]:
         "a")[-1].attrs['href']
     page_numbers = last_page_url.split('/')[-2]
     paginated_songs = []
-    # the size of pagination is 10 since 10 songs are displayed per page on website
+    # the size of pagination is 10 since 10 songs are displayed per page.
     for i in range(int(page_numbers)):
         page_songs = get_artist_page_songs(artist, i+1)
         paginated_songs.append(page_songs)
     return paginated_songs
 
 
-def _download_music(music_url: str, file_dir: str) -> str:
+def _download_music(music_url: str, file_dir: str) -> None:
     file_name = music_url.split('/')[-1].replace("%20", ' ')
     # /home/user/همایون شجریان/Irane Man.mp3
     file_full_path = os.path.join(file_dir, file_name)
@@ -114,16 +114,13 @@ def _download_music(music_url: str, file_dir: str) -> str:
         with open(file_full_path, "wb") as file:
             _download_file(music_url, file)
             logger.info(f"{file_name} downloaded.")
-            return file_full_path
     # sometimes request for downloads throws a broken exception & connection error  and the file stays empty.
     if os.path.getsize(file_full_path) == 0:
         logger.info(f"{file_name} is empty, redownloading.")
         with open(file_full_path, "wb") as file:
             _download_file(music_url, file)
             logger.info(f"{file_name}, Downloaded.")
-            return file_full_path
     logger.info(f"{file_name} is already downloaded, skipping.")
-    return file_full_path
 
 
 def _download_file(url: str, file: BinaryIO) -> None:

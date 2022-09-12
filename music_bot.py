@@ -14,9 +14,9 @@ from telegram.ext import (
 )
 from models import Artist, Song
 
-from utils import paginate_list
+from utils import paginate_list, create_keyboard_page
 from settings import TELEGRAM_BOT_TOKEN, SECRET_FILE_PATH, SAVE_DIR
-from scrap import download_song, all_artists, get_artist, validate_artist, all_artist_songs_paginated
+from scrap import download_song, get_all_artists, get_artist, validate_artist, all_artist_songs_paginated
 from logger import logger
 
 ARTIST, SONG, ARTIST_SELECTION = range(3)
@@ -44,46 +44,10 @@ async def list_artists(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text("در حال دریافت لیست خوانندگان ...")
-    artists = all_artists()
+    artists = get_all_artists()
     paginated_artists = paginate_list(artists)
-    page = int(query.data.split("_")[-1]) 
-    keyboard = []
-    artists = paginated_artists[page-1]
-    for i in range(0, int(len(artists)) - 1, 2):
-        line = [
-            InlineKeyboardButton(
-                artists[i].name, callback_data=artists[i]),
-            InlineKeyboardButton(
-                artists[i+1].name, callback_data=artists[i+1])
-        ]
-        keyboard.append(line)
-    if len(artists) % 2 != 0:
-        keyboard.append([
-            InlineKeyboardButton(
-                artists[-1].name, callback_data=artists[-1])
-        ])
-    if page == 1:
-        line = [
-            InlineKeyboardButton("خروج", callback_data="exit"),
-            InlineKeyboardButton(
-                "-->", callback_data=f"artists_page_{page+1}"),
-        ]
-    elif page == len(paginated_artists):
-        line = [
-            InlineKeyboardButton(
-                "<--", callback_data=f"artists_page_{page-1}"),
-            InlineKeyboardButton("خروج", callback_data="exit")
-        ]
-    else:
-        line = [
-            InlineKeyboardButton(
-                "<--", callback_data=f"artists_page_{page-1}"),
-            InlineKeyboardButton("خروج", callback_data="exit"),
-            InlineKeyboardButton(
-                "-->", callback_data=f"artists_page_{page+1}"),
-        ]
-    keyboard.append(line)
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    requested_page = int(query.data.split("_")[-1])
+    reply_markup = create_keyboard_page(paginated_artists, requested_page)
     await query.edit_message_text(
         text="یک خواننده را انتخاب کنید", reply_markup=reply_markup
     )
@@ -97,20 +61,21 @@ async def input_artist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="نام خواننده خود را وارد کنیم. مثل:\n همایون شجریان",
         reply_markup=InlineKeyboardMarkup(
             [
-                [InlineKeyboardButton("خروج", callback_data="exit")]
+                [InlineKeyboardButton(text="خروج", callback_data="exit")]
             ]))
     return ARTIST_SELECTION
 
 
 async def set_artist_by_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    # await query.answer()
     artist = query.data
     context.user_data.update({"requested_artist": artist})
     update.callback_query = None
-    logger.info({f"User {query.from_user.full_name} chose {context.user_data.get('requested_artist')}"})
+    logger.info(
+        {f"User {query.from_user.full_name} chose {context.user_data.get('requested_artist')}"})
     await list_artist_songs(update, context)
     return SONG
+
 
 async def set_artist_by_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     artist = update.message.text
@@ -125,87 +90,52 @@ async def set_artist_by_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await list_artist_songs(update, context)
     return SONG
 
+
 async def list_artist_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    artist = context.user_data.get("requested_artist")
     query = update.callback_query
     if query:
-        page = int(query.data.split("_")[-1])
-        await query.answer()
-        # await query.edit_message_text("در حال دریافت لیست آهنگ ها ...")
+        requested_page = int(query.data.split("_")[-1])
+        query.answer()
     else:
-        page = 1
-        message = context.chat_data.get("start_message")
-        await message.edit_text(text="در حال دریافت لیست آهنگ ها ...")
+        requested_page = 1
+    start_message = context.user_data.get("start_message")
+    await start_message.edit_text(text="در حال دریافت لیست آهنگ ها ...")
+    artist = context.user_data.get("requested_artist")
     paginated_songs = all_artist_songs_paginated(artist)
-    last_page_index = len(paginated_songs)
-    keyboard = []
-    page_songs = paginated_songs[page-1]
-    for i in range(0, int(len(page_songs)) - 1, 2):
-        line = [
-            InlineKeyboardButton(page_songs[i].name,
-                                 callback_data=page_songs[i]),
-            InlineKeyboardButton(page_songs[i+1].name,
-                                 callback_data=page_songs[i+1])
-        ]
-        keyboard.append(line)
-    if len(page_songs) % 2 != 0:
-        keyboard.append([
-            InlineKeyboardButton(
-                page_songs[-1].name, callback_data=page_songs[-1])])
-    if page == 1:
-        line = [
-            InlineKeyboardButton("خروج", callback_data="exit"),
-            InlineKeyboardButton("-->", callback_data=f"songs_{page+1}")
-        ]
-    elif page == last_page_index:
-        line = [
-            InlineKeyboardButton("<--", callback_data=f"songs_{page-1}"),
-            InlineKeyboardButton("خروج", callback_data="exit")
-        ]
-    else:
-        line = [
-            InlineKeyboardButton("<--", callback_data=f"songs_{page-1}"),
-            InlineKeyboardButton("خروج", callback_data="exit"),
-            InlineKeyboardButton("-->", callback_data=f"songs_{page+1}"),
-        ]
-
-    keyboard.append(line)
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    if query:
-        await query.edit_message_text(
-            text="یک آهنگ را انتخاب کنید", reply_markup=reply_markup
-        )
-    else:
-        msg = context.chat_data.get("start_message")
-        await msg.edit_text(
-            text=f"خواننده انتخاب شده:\n{artist.name}\nیک آهنگ را انتخاب کنید.",
-            reply_markup=reply_markup)
+    reply_markup = create_keyboard_page(paginated_songs, requested_page)
+    await start_message.edit_text(
+        text=f"خواننده انتخاب شده:\n{artist.name}\nیک آهنگ را انتخاب کنید.",
+        reply_markup=reply_markup)
     return SONG
 
 
 async def download_selected_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    status_msg = await update.effective_chat.send_message(text="در حال دانلود آهنگ ...")
+    status_message = await update.effective_chat.send_message(text="در حال دانلود آهنگ ...")
+    song: Song = query.data
+    user_name = update.effective_user.full_name
     try:
-        song_url = query.data.url
-        file_path = download_song(song_url, SAVE_DIR)
-        file_name = file_path.split('/')[-1]
-        logger.info(f"User {update.effective_user.full_name} downloaded {file_name}")
+        download_song(song.url, SAVE_DIR)
+        logger.info(f"User {user_name} downloaded {song.name}.")
     except requests.exceptions.ChunkedEncodingError or requests.exceptions.SSLError:
-        logger.error(f"User {update.effective_user.full_name} failed to download {file_name}")
+        logger.error(f"User {user_name} failed to download {song.name}.")
         await update.effective_chat.send_message("دانلود به مشکل خورد لطفا دوباره سعی کنید!")
-        await status_msg.delete()
+        await status_message.delete()
         return SONG
-    await status_msg.edit_text(text="در حال ارسال آهنگ ...")
+    await send_selected_song(update, context, status_message)
+
+
+async def send_selected_song(update: Update, context: ContextTypes.DEFAULT_TYPE, status_message):
+    await status_message.edit_text(text="در حال ارسال آهنگ ...")
     file = open(file_path, 'rb')
     await update.effective_chat.send_audio(file, write_timeout=300)
     if not context.user_data.get("download_inform"):
-        await status_msg.edit_text(
+        await status_message.edit_text(
             text="آهنگ دانلود شد. \n میتوانید از لیست آهنگ هایی که هنوز در لیست بالا موجود هستند آهنگ دانلود کنید در غیر این صورت دکمه خروج را فشار دهید")
         context.user_data['download_inform'] = True
     else:
-        await status_msg.delete()
+        await status_message.delete()
     return SONG
 
 
@@ -227,9 +157,9 @@ async def exit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-
 def main():
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).arbitrary_callback_data(True).build()
+    application = Application.builder().token(
+        TELEGRAM_BOT_TOKEN).arbitrary_callback_data(True).build()
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
@@ -237,7 +167,7 @@ def main():
                 CallbackQueryHandler(set_artist_by_callback,
                                      pattern=Artist),
                 CallbackQueryHandler(
-                    list_artists, pattern="^artists_page_\d+$"),
+                    list_artists, pattern="^page_\d+$"),
                 CallbackQueryHandler(input_artist, pattern="^artist_songs$"),
             ],
             ARTIST_SELECTION: [
@@ -248,7 +178,7 @@ def main():
                 CallbackQueryHandler(
                     download_selected_song, pattern=Song),
                 CallbackQueryHandler(
-                    list_artist_songs, pattern="^songs_\d+$"), #songs_1
+                    list_artist_songs, pattern="^page_\d+$"),
             ]
         },
         fallbacks=[
