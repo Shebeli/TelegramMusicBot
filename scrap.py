@@ -1,3 +1,4 @@
+from email.mime import audio
 import os
 from typing import List, BinaryIO
 from cachetools import cached, TTLCache
@@ -49,7 +50,8 @@ def get_artist_page_songs(artist: Artist, page: int = 1) -> List[Song]:
         for song in bs.find_all("article")
     ]
 
-@cached(cache)
+
+@music_model_cached(cache)
 def all_artist_songs_paginated(artist: Artist) -> List[List[Song]]:
     bs = _artist_bs(artist)
     last_page_url = (
@@ -59,7 +61,7 @@ def all_artist_songs_paginated(artist: Artist) -> List[List[Song]]:
     paginated_songs = []
     # the size of pagination is 10 since 10 songs are displayed per page.
     for i in range(int(page_numbers)):
-        page_songs = get_artist_page_songs(artist, i+1)
+        page_songs = get_artist_page_songs(artist, i + 1)
         paginated_songs.append(page_songs)
     return paginated_songs
 
@@ -82,13 +84,8 @@ def download_songs_from_page(artist: str, page: int = 1, save_dir: str = None) -
         _download_music(song.url, artist_dir)
 
 
-def download_song(song_id=None, download_url=None, save_dir=None, quality=128) -> str:
-    if song_id:
-        download_url = settings.BASE_DOWNLOAD_URL + song_id
-    if not download_url:
-        raise Exception("Either a song id or download url should be passed as argument")
-    bs = BeautifulSoup((requests.get(download_url)).content, "html.parser")
-    link_tags = bs.find("div", class_="bdownloadfa").find_all("a")
+def download_song(song: Song, save_dir: str = None, quality: int = 128) -> str:
+    music_link_extractor
     if save_dir:
         file_dir = os.path.abspath(save_dir)
     else:
@@ -99,6 +96,36 @@ def download_song(song_id=None, download_url=None, save_dir=None, quality=128) -
         return _download_music(link_tags[1].attrs["href"], os.path.abspath(file_dir))
 
 
+def music_link_extractor(song: Song, selected_quality: int) -> bool:
+    bs = BeautifulSoup((requests.get(download_url)).content, "html.parser")
+    links = [
+        a_tag.attrs["href"] for a_tag in bs.find("div", class_="cntfa").find_all("a")
+    ]
+    audio_links = set(filter(lambda link: link[-4:] == ".mp3", links))  # no duplicates!
+    if not audio_links:
+        raise Exception("No audio links were found")
+    QUALITY_START_INDEX, QUALITY_END_INDEX = -8, -5
+    SONG_NAME_END_INDEX = -10
+    songs = (
+        {}
+    )  # link sample: https://ups.music-fa.com/tagdl/6e41/Masih%20-%20Rose%20(320).mp3
+    for audio_link in audio_links:
+        song_name = audio_link.split("/")[-1].replace("%20", " ")[:SONG_NAME_END_INDEX]
+        song_quality = audio_link[QUALITY_START_INDEX:QUALITY_END_INDEX]
+        if song_name not in songs:
+            songs[song_name] = {}
+        if song_quality not in ("128", "320"):
+            songs[song_name]["unknown_quality"] = audio_link
+        songs[song_name][song_quality] = audio_link
+
+
+# download audio file based on if the link ends with .mp3
+# if there are multiple audio files to download, the process can be breaked down into these steps & constraints
+#   if the same audio file exists with different qualities, the selected quality should be filtered
+#   if theres more than one unique audio file, it means that the page has multiple songs and each of them
+#   should be downloaded seperataly.
+#   Therees an exception that even if some download pages have both 320, 120 quality, both links are
+#   the same. the only way to get the files quality is through its file name
 def download_artist_album(artist: str, save_dir: str = None) -> None:
     bs = _artist_bs(artist)
     last_page_url = (

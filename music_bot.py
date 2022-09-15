@@ -33,9 +33,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"User {user.full_name} started the bot")
     keyboard = [
         [
-            InlineKeyboardButton(
-                text="دریافت لیست خوانندگان", 
-                callback_data="page_1"),
+            InlineKeyboardButton(text="دریافت لیست خوانندگان", callback_data="page_1"),
             InlineKeyboardButton(
                 text="لیست آهنگ های خواننده",
                 callback_data="artist_songs",
@@ -45,7 +43,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     text = "به بات موزیکفا خوش آمدید!\n برای خروج از بات از /exit استفاده بکنید و یا دکمه خروج را فشار دهید \n یک گزینه را انتخاب کنید"
     message = await update.message.reply_text(text, reply_markup=reply_markup)
-    context.chat_data["start_message"] = message
+    context.user_data["start_message"] = message
     return ARTIST
 
 
@@ -79,13 +77,13 @@ async def input_artist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def set_artist_by_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
     artist = query.data
     context.user_data.update({"requested_artist": artist})
     update.callback_query = None  # need explanation/refactor
     logger.info(
         {
-            f"User {query.from_user.full_name} \
-             chose {context.user_data.get('requested_artist')} via callback."
+            f"User {query.from_user.full_name} chose {context.user_data.get('requested_artist')} via callback."
         }
     )
     await list_artist_songs(update, context)
@@ -94,7 +92,6 @@ async def set_artist_by_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 async def set_artist_by_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     artist = update.message.text
-    logger.info(f"Callback query in setting artist func:{update.callback_query}")
     if not validate_artist(artist):
         await update.message.reply_text(
             "خواننده مورد نظر پیدا نشد. لطفا دوباره نام خواننده را وارد نمایید."
@@ -103,8 +100,7 @@ async def set_artist_by_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.update({"requested_artist": get_artist(artist)})
     logger.info(
         {
-            f"User {update.effective_user.full_name} \
-             chose {context.user_data.get('requested_artist')} via message input."
+            f"User {update.effective_user.full_name} chose {context.user_data.get('requested_artist')} via message input."
         }
     )
     await list_artist_songs(update, context)
@@ -115,12 +111,12 @@ async def list_artist_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query:
         requested_page = int(query.data.split("_")[-1])
-        query.answer()
+        await query.answer()
     else:
         requested_page = 1
-    start_message = context.user_data.get("start_message")
     artist = context.user_data.get("requested_artist")
-    paginated_songs_cache = cache.get((artist.name))
+    paginated_songs_cache = cache.get((artist.name,))
+    start_message = context.user_data.get("start_message")
     if not paginated_songs_cache:
         await start_message.edit_text(text="در حال دریافت لیست آهنگ ها ...")
     paginated_songs = all_artist_songs_paginated(artist)
@@ -141,7 +137,7 @@ async def download_selected_song(update: Update, context: ContextTypes.DEFAULT_T
     song: Song = query.data
     user_name = update.effective_user.full_name
     try:
-        file_path = download_song(song.url, SAVE_DIR)
+        file_path = download_song(download_url=song.url, save_dir=SAVE_DIR)
         logger.info(f"User {user_name} downloaded {song.name}.")
     except requests.exceptions.ChunkedEncodingError or requests.exceptions.SSLError:
         logger.error(f"User {user_name} failed to download {song.name}.")

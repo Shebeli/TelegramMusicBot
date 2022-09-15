@@ -1,7 +1,7 @@
 import logging
 
 
-file_handler = logging.FileHandler("music_bot.log")
+file_handler = logging.FileHandler("music_bot.log", mode="w")
 stream_handler = logging.StreamHandler()
 
 formatter = logging.Formatter(
@@ -9,8 +9,8 @@ formatter = logging.Formatter(
 file_handler.setFormatter(formatter)
 stream_handler.setFormatter(formatter)
 
+
 logger = logging.getLogger("music_bot")
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
-
 logger.setLevel(logging.INFO)
