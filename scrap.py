@@ -1,6 +1,5 @@
-from email.mime import audio
 import os
-from typing import List, BinaryIO
+from typing import Dict, List, BinaryIO, Literal, Optional
 from cachetools import cached, TTLCache
 
 import requests
@@ -67,7 +66,7 @@ def all_artist_songs_paginated(artist: Artist) -> List[List[Song]]:
 
 
 def validate_artist(artist: str) -> bool:
-    return True if artist in get_all_artists() else False
+    return True if artist in [artist.name for artist in get_all_artists()] else False
 
 
 def download_songs_from_page(artist: str, page: int = 1, save_dir: str = None) -> None:
@@ -84,20 +83,34 @@ def download_songs_from_page(artist: str, page: int = 1, save_dir: str = None) -
         _download_music(song.url, artist_dir)
 
 
-def download_song(song: Song, save_dir: str = None, quality: int = 128) -> str:
-    music_link_extractor
+def download_song(
+    song: Song,
+    save_dir: str = None,
+    selected_quality: Literal["320", "128", "any"] = "any",
+) -> str:
+    music_download_links = music_link_extractor(song)
     if save_dir:
         file_dir = os.path.abspath(save_dir)
     else:
         file_dir = os.path.abspath("")
-    if quality == 320:
-        return _download_music(link_tags[0].attrs["href"], os.path.abspath(file_dir))
-    elif quality == 128:
-        return _download_music(link_tags[1].attrs["href"], os.path.abspath(file_dir))
+    audio_links = []
+    for quality_choices in music_download_links.values():
+        if selected_quality not in quality_choices or selected_quality == "any":
+            audio_links.append(quality_choices.popitem()[1])
+        else:
+            audio_links.append(quality_choices[selected_quality])
+    downloaded_file_paths = [
+        _download_music(audio_link, file_dir) for audio_link in audio_links
+    ]
+    return downloaded_file_paths
 
 
-def music_link_extractor(song: Song, selected_quality: int) -> bool:
-    bs = BeautifulSoup((requests.get(download_url)).content, "html.parser")
+def music_link_extractor(
+    song: Song,
+) -> Dict[
+    str, Dict[Optional[Literal["320", "128", "unknown"]], str]
+]:  # unnecassry complex data structure, needs refactoring
+    bs = BeautifulSoup((requests.get(song.url)).content, "html.parser")
     links = [
         a_tag.attrs["href"] for a_tag in bs.find("div", class_="cntfa").find_all("a")
     ]
@@ -107,25 +120,19 @@ def music_link_extractor(song: Song, selected_quality: int) -> bool:
     QUALITY_START_INDEX, QUALITY_END_INDEX = -8, -5
     SONG_NAME_END_INDEX = -10
     songs = (
-        {}
+        dict()
     )  # link sample: https://ups.music-fa.com/tagdl/6e41/Masih%20-%20Rose%20(320).mp3
     for audio_link in audio_links:
-        song_name = audio_link.split("/")[-1].replace("%20", " ")[:SONG_NAME_END_INDEX]
+        audio_name = audio_link.split("/")[-1].replace("%20", " ")[:SONG_NAME_END_INDEX]
         song_quality = audio_link[QUALITY_START_INDEX:QUALITY_END_INDEX]
-        if song_name not in songs:
-            songs[song_name] = {}
+        if audio_name not in songs:
+            songs[audio_name] = dict()
         if song_quality not in ("128", "320"):
-            songs[song_name]["unknown_quality"] = audio_link
-        songs[song_name][song_quality] = audio_link
+            songs[audio_name]["unknown_quality"] = audio_link
+        songs[audio_name][song_quality] = audio_link
+    return songs
 
 
-# download audio file based on if the link ends with .mp3
-# if there are multiple audio files to download, the process can be breaked down into these steps & constraints
-#   if the same audio file exists with different qualities, the selected quality should be filtered
-#   if theres more than one unique audio file, it means that the page has multiple songs and each of them
-#   should be downloaded seperataly.
-#   Therees an exception that even if some download pages have both 320, 120 quality, both links are
-#   the same. the only way to get the files quality is through its file name
 def download_artist_album(artist: str, save_dir: str = None) -> None:
     bs = _artist_bs(artist)
     last_page_url = (
@@ -144,12 +151,14 @@ def _download_music(music_url: str, file_dir: str) -> str:
         with open(file_full_path, "wb") as file:
             _download_file(music_url, file)
             logger.info(f"{file_name} downloaded.")
+        return file_full_path
     # sometimes request for downloads throws a broken exception & connection error  and the file stays empty.
     if os.path.getsize(file_full_path) == 0:
         logger.info(f"{file_name} is empty, redownloading.")
         with open(file_full_path, "wb") as file:
             _download_file(music_url, file)
             logger.info(f"{file_name}, Downloaded.")
+        return file_full_path
     logger.info(f"{file_name} is already downloaded, skipping.")
     return file_full_path
 

@@ -1,4 +1,4 @@
-from email import message
+from typing import List
 import requests
 
 from telegram import Update, Message, InlineKeyboardButton, InlineKeyboardMarkup
@@ -128,7 +128,7 @@ async def list_artist_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return SONG
 
 
-async def download_selected_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def download_selected_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     status_message = await update.effective_chat.send_message(
@@ -137,8 +137,8 @@ async def download_selected_song(update: Update, context: ContextTypes.DEFAULT_T
     song: Song = query.data
     user_name = update.effective_user.full_name
     try:
-        file_path = download_song(download_url=song.url, save_dir=SAVE_DIR)
-        logger.info(f"User {user_name} downloaded {song.name}.")
+        logger.info(f"User {user_name} requested to download song: {song.name}.")
+        file_paths = download_song(song=song, save_dir=SAVE_DIR)
     except requests.exceptions.ChunkedEncodingError or requests.exceptions.SSLError:
         logger.error(f"User {user_name} failed to download {song.name}.")
         await update.effective_chat.send_message(
@@ -146,19 +146,23 @@ async def download_selected_song(update: Update, context: ContextTypes.DEFAULT_T
         )
         await status_message.delete()
         return SONG
-    await send_selected_song(update, context, status_message, file_path)
+    await send_selected_songs(update, context, status_message, file_paths)
     return SONG
 
 
-async def send_selected_song(
+async def send_selected_songs(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     status_message: Message,
-    file_path: str,
+    file_paths: List[str],
 ):
     await status_message.edit_text(text="در حال ارسال آهنگ ...")
-    file = open(file_path, "rb")
-    await update.effective_chat.send_audio(file, write_timeout=300)
+    for file_path in file_paths:
+        with open(file_path, "rb") as file:
+            logger.info(
+                f"Sending audio {file_path} to user {update.effective_user.full_name} "
+            )
+            await update.effective_chat.send_audio(file, write_timeout=2000)
     if not context.user_data.get("download_inform"):
         await status_message.edit_text(
             text="آهنگ دانلود شد. \n میتوانید از لیست آهنگ هایی که هنوز در لیست بالا موجود هستند آهنگ دانلود کنید در غیر این صورت دکمه خروج را فشار دهید"
@@ -183,6 +187,7 @@ async def exit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         message = context.chat_data.get("start_message")
         await message.edit_text("ممنون که از بات موزیکفا استفاده میکنید !")
+    logger.info(f"User {update.effective_user.full_name} exited the bot.")
     return ConversationHandler.END
 
 
@@ -190,6 +195,7 @@ def main():
     application = (
         Application.builder()
         .token(TELEGRAM_BOT_TOKEN)
+        .read_timeout(500)
         .arbitrary_callback_data(True)
         .build()
     )
@@ -205,7 +211,7 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, set_artist_by_msg),
             ],
             SONG: [
-                CallbackQueryHandler(download_selected_song, pattern=Song),
+                CallbackQueryHandler(download_selected_songs, pattern=Song),
                 CallbackQueryHandler(list_artist_songs, pattern="^page_\d+$"),
             ],
         },
