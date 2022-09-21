@@ -1,15 +1,14 @@
 import functools
-from models import Song, Artist
+from music_bot.scrap.models import Song, Artist
 
 
 def music_model_cached(cache):
     """
-    Note that this decorator should be only set on functions which have Artist or
-    Song models instances as their arguments or keyword arguments.
+    Caching decorator for Song and Artist instances.
     """
     def decorator_cache(func):
         @functools.wraps(func)
-        def wrapper_cache(*args, **kwargs):
+        async def wrapper_cache(*args, **kwargs):
             kwargs_copy = dict(kwargs) # kwargs_copy is kwargs -> False
             args_copy = list(args)
             for i, item in enumerate(args_copy):
@@ -20,7 +19,7 @@ def music_model_cached(cache):
                     kwargs_copy[key] = value.name
             cache_key = tuple(args_copy) + tuple(kwargs_copy.items())
             if cache_key not in cache:
-                cache[cache_key] = func(*args, **kwargs)
+                cache[cache_key] =  await func(*args, **kwargs)
             return cache[cache_key]
         return wrapper_cache
     return decorator_cache

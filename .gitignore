@@ -4,3 +4,5 @@ settings.py
 musicbot.log
 musicbot.mmd
 music_bot.log
+.vscode
+*profile.prof

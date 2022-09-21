@@ -1,45 +1,54 @@
 import os
 from typing import Dict, List, BinaryIO, Literal, Optional
 from cachetools import cached, TTLCache
+import asyncio
+import time
+
 
 import requests
+import aiohttp
 from bs4 import BeautifulSoup
 
-import settings
-from logger import logger
-from models import Artist, Song
-from decorators import music_model_cached
+import music_bot.settings as settings
+from music_bot.logger import logger
+from music_bot.scrap.models import Artist, Song
+from music_bot.scrap.decorators import music_model_cached
+from music_bot.utils.aioutils import fetch
 
 cache = TTLCache(maxsize=80, ttl=172800)
 
 
 @cached(cache)
-def get_all_artists() -> List[Artist]:
-    bs = BeautifulSoup((requests.get(settings.BASE_URL)).content, "html.parser")
+async def get_all_artists() -> List[Artist]:
+    async with aiohttp.ClientSession() as session:
+        response = await fetch(session, settings.BASE_URL)
+        bs = BeautifulSoup(response, "html.parser")
     artists = bs.find("aside", class_="rwr").find_all("li")
     return [Artist(artist.text, artist.a.attrs["href"]) for artist in artists]
 
 
-def get_artist(artist: str) -> Artist:
-    for arti in get_all_artists():
+async def get_artist(artist: str) -> Artist:
+    all_artists = await get_all_artists()
+    for arti in all_artists:
         if arti.name == artist:
             return arti
     raise Exception("Given artist name wasn't found")
 
 
 @music_model_cached(cache)
-def _artist_bs(artist: Artist, page: int = 1) -> BeautifulSoup:
+async def _artist_bs(artist: Artist, page: int = 1) -> BeautifulSoup:
     url = artist.url
-    if page == 1:
-        response = requests.get(url)
-    else:
-        response = requests.get(url + f"/page/{page}")
-    bs = BeautifulSoup(response.content, "html.parser")
+    async with aiohttp.ClientSession() as session:
+        if page == 1:
+            response = await fetch(session, url)
+        else:
+            response = await fetch(session, url=url + f"/page/{page}")
+    bs = BeautifulSoup(response, "html.parser")
     return bs
 
 
-def get_artist_page_songs(artist: Artist, page: int = 1) -> List[Song]:
-    bs = _artist_bs(artist, page)
+async def get_artist_page_songs(artist: Artist, page: int = 1) -> List[Song]:
+    bs = await _artist_bs(artist, page)
     return [
         Song(
             id=song.a.attrs["href"].split("/")[-2],
@@ -51,28 +60,30 @@ def get_artist_page_songs(artist: Artist, page: int = 1) -> List[Song]:
 
 
 @music_model_cached(cache)
-def all_artist_songs_paginated(artist: Artist) -> List[List[Song]]:
-    bs = _artist_bs(artist)
+async def all_artist_songs_paginated(artist: Artist) -> List[List[Song]]:
+    bs = await _artist_bs(artist)
     last_page_url = (
         bs.find("div", class_="pnavifa fxmf").find_all("a")[-1].attrs["href"]
     )
-    page_numbers = last_page_url.split("/")[-2]
-    paginated_songs = []
-    # the size of pagination is 10 since 10 songs are displayed per page.
-    for i in range(int(page_numbers)):
-        page_songs = get_artist_page_songs(artist, i + 1)
-        paginated_songs.append(page_songs)
+    last_page_index = last_page_url.split("/")[-2]
+    paginated_songs = await asyncio.gather(
+        *[get_artist_page_songs(artist, i + 1) for i in range(int(last_page_index))]
+    )
     return paginated_songs
 
 
-def validate_artist(artist: str) -> bool:
-    return True if artist in [artist.name for artist in get_all_artists()] else False
+async def validate_artist(artist: str) -> bool:
+    return (
+        True if artist in [artist.name for artist in await get_all_artists()] else False
+    )
 
 
-def download_songs_from_page(artist: str, page: int = 1, save_dir: str = None) -> None:
+async def download_songs_from_page(
+    artist: str, page: int = 1, save_dir: str = None
+) -> None:
     if not save_dir:
         save_dir = getattr(settings, "SAVE_DIR", None)
-    songs = get_artist_page_songs(artist, page)
+    songs = await get_artist_page_songs(artist, page)
     if save_dir:
         artist_dir = os.path.join(os.abs.path(save_dir), artist)
     else:
@@ -133,8 +144,8 @@ def music_link_extractor(
     return songs
 
 
-def download_artist_album(artist: str, save_dir: str = None) -> None:
-    bs = _artist_bs(artist)
+async def download_artist_album(artist: str, save_dir: str = None) -> None:
+    bs = await _artist_bs(artist)
     last_page_url = (
         bs.find("div", class_="pnavifa fxmf").find_all("a")[-1].attrs["href"]
     )
@@ -167,3 +178,4 @@ def _download_file(url: str, file: BinaryIO) -> None:
     with requests.get(url) as response:
         downloaded_file = response.content
         file.write(downloaded_file)
+

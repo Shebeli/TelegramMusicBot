@@ -11,11 +11,11 @@ from telegram.ext import (
     ConversationHandler,
     CallbackQueryHandler,
 )
-from models import Artist, Song
+from music_bot.scrap.models import Artist, Song
 
-from utils import paginate_list, create_keyboard_page
-from settings import TELEGRAM_BOT_TOKEN, SECRET_FILE_PATH, SAVE_DIR
-from scrap import (
+from music_bot.utils.utils import paginate_list, create_keyboard_page
+from music_bot.settings import TELEGRAM_BOT_TOKEN, SECRET_FILE_PATH, SAVE_DIR
+from music_bot.scrap.scrap import (
     download_song,
     get_all_artists,
     get_artist,
@@ -23,7 +23,7 @@ from scrap import (
     all_artist_songs_paginated,
     cache,
 )
-from logger import logger
+from music_bot.logger import logger
 
 ARTIST, SONG, ARTIST_SELECTION = range(3)
 
