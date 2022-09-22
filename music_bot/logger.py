@@ -5,7 +5,7 @@ file_handler = logging.FileHandler("music_bot.log", mode="w")
 stream_handler = logging.StreamHandler()
 
 formatter = logging.Formatter(
-    "%(asctime)s | %(name)s | %(levelname)s | %(message)s")
+    "%(asctime)s | %(levelname)s | %(message)s")
 file_handler.setFormatter(formatter)
 stream_handler.setFormatter(formatter)
 

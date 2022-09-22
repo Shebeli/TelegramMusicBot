@@ -2,7 +2,7 @@ import functools
 from music_bot.scrap.models import Song, Artist
 
 
-def music_model_cached(cache):
+def music_cacher(cache):
     """
     Caching decorator for Song and Artist instances.
     """

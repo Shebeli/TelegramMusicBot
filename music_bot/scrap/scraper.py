@@ -1,29 +1,30 @@
 import os
 from typing import Dict, List, BinaryIO, Literal, Optional
-from cachetools import cached, TTLCache
+from urllib import response
+from cachetools import TTLCache
 import asyncio
-import time
 
 
 import requests
-import aiohttp
+from aiohttp import ClientSession
 from bs4 import BeautifulSoup
 
 import music_bot.settings as settings
 from music_bot.logger import logger
 from music_bot.scrap.models import Artist, Song
-from music_bot.scrap.decorators import music_model_cached
+from music_bot.scrap.decorators import music_cacher
 from music_bot.utils.aioutils import fetch
+from music_bot.utils.utils import HTMLTagClass, last_page_number_extractor
 
 cache = TTLCache(maxsize=80, ttl=172800)
 
 
-@cached(cache)
+@music_cacher(cache)
 async def get_all_artists() -> List[Artist]:
-    async with aiohttp.ClientSession() as session:
+    async with ClientSession() as session:
         response = await fetch(session, settings.BASE_URL)
         bs = BeautifulSoup(response, "html.parser")
-    artists = bs.find("aside", class_="rwr").find_all("li")
+    artists = bs.find("aside", class_=HTMLTagClass.ARTISTS.value).find_all("li")
     return [Artist(artist.text, artist.a.attrs["href"]) for artist in artists]
 
 
@@ -32,13 +33,13 @@ async def get_artist(artist: str) -> Artist:
     for arti in all_artists:
         if arti.name == artist:
             return arti
-    raise Exception("Given artist name wasn't found")
+    return None
 
 
-@music_model_cached(cache)
+@music_cacher(cache)
 async def _artist_bs(artist: Artist, page: int = 1) -> BeautifulSoup:
     url = artist.url
-    async with aiohttp.ClientSession() as session:
+    async with ClientSession() as session:
         if page == 1:
             response = await fetch(session, url)
         else:
@@ -59,23 +60,17 @@ async def get_artist_page_songs(artist: Artist, page: int = 1) -> List[Song]:
     ]
 
 
-@music_model_cached(cache)
+@music_cacher(cache)
 async def all_artist_songs_paginated(artist: Artist) -> List[List[Song]]:
     bs = await _artist_bs(artist)
-    last_page_url = (
-        bs.find("div", class_="pnavifa fxmf").find_all("a")[-1].attrs["href"]
-    )
-    last_page_index = last_page_url.split("/")[-2]
+    last_page_number = last_page_number_extractor(bs)
+    if not last_page_number:
+        page_songs = await get_artist_page_songs(artist)
+        return 
     paginated_songs = await asyncio.gather(
-        *[get_artist_page_songs(artist, i + 1) for i in range(int(last_page_index))]
+        *[get_artist_page_songs(artist, i+1) for i in range(last_page_number)]
     )
     return paginated_songs
-
-
-async def validate_artist(artist: str) -> bool:
-    return (
-        True if artist in [artist.name for artist in await get_all_artists()] else False
-    )
 
 
 async def download_songs_from_page(
@@ -94,12 +89,12 @@ async def download_songs_from_page(
         _download_music(song.url, artist_dir)
 
 
-def download_song(
+async def download_song(
     song: Song,
     save_dir: str = None,
     selected_quality: Literal["320", "128", "any"] = "any",
 ) -> str:
-    music_download_links = music_link_extractor(song)
+    music_download_links = await music_link_extractor(song)
     if save_dir:
         file_dir = os.path.abspath(save_dir)
     else:
@@ -116,23 +111,25 @@ def download_song(
     return downloaded_file_paths
 
 
-def music_link_extractor(
+async def music_link_extractor(
     song: Song,
 ) -> Dict[
     str, Dict[Optional[Literal["320", "128", "unknown"]], str]
-]:  # unnecassry complex data structure, needs refactoring
-    bs = BeautifulSoup((requests.get(song.url)).content, "html.parser")
+]:  # unnessacry complex data structure, needs refactoring
+    async with ClientSession() as session:
+        response_content = await fetch(session, song.url)
+    bs = BeautifulSoup(response_content, "html.parser")
     links = [
-        a_tag.attrs["href"] for a_tag in bs.find("div", class_="cntfa").find_all("a")
+        a_tag.attrs["href"]
+        for a_tag in bs.find("div", class_=HTMLTagClass.SONG_COVER.value).find_all("a")
     ]
     audio_links = set(filter(lambda link: link[-4:] == ".mp3", links))  # no duplicates!
     if not audio_links:
         raise Exception("No audio links were found")
     QUALITY_START_INDEX, QUALITY_END_INDEX = -8, -5
     SONG_NAME_END_INDEX = -10
-    songs = (
-        dict()
-    )  # link sample: https://ups.music-fa.com/tagdl/6e41/Masih%20-%20Rose%20(320).mp3
+    songs = dict()
+    # audio_link sample: https://ups.music-fa.com/tagdl/6e41/Masih%20-%20Rose%20(320).mp3
     for audio_link in audio_links:
         audio_name = audio_link.split("/")[-1].replace("%20", " ")[:SONG_NAME_END_INDEX]
         song_quality = audio_link[QUALITY_START_INDEX:QUALITY_END_INDEX]
@@ -146,12 +143,9 @@ def music_link_extractor(
 
 async def download_artist_album(artist: str, save_dir: str = None) -> None:
     bs = await _artist_bs(artist)
-    last_page_url = (
-        bs.find("div", class_="pnavifa fxmf").find_all("a")[-1].attrs["href"]
-    )
-    last_page_num = last_page_url.split("/")[-2]
-    for i in range(int(last_page_num)):
-        download_songs_from_page(artist, i + 1, save_dir)
+    last_page_number = last_page_number_extractor(bs)
+    for i in range(last_page_number):
+        await download_songs_from_page(artist, i + 1, save_dir)
 
 
 def _download_music(music_url: str, file_dir: str) -> str:
@@ -159,11 +153,12 @@ def _download_music(music_url: str, file_dir: str) -> str:
     # /home/user/همایون شجریان/Irane Man.mp3
     file_full_path = os.path.join(file_dir, file_name)
     if not os.path.isfile(file_full_path):
+        logger.info(f"{file_name} doesn't exist, downloading.")
         with open(file_full_path, "wb") as file:
             _download_file(music_url, file)
             logger.info(f"{file_name} downloaded.")
         return file_full_path
-    # sometimes request for downloads throws a broken exception & connection error  and the file stays empty.
+    # sometimes request for downloads throws a broken exception & connection error and the file stays empty.
     if os.path.getsize(file_full_path) == 0:
         logger.info(f"{file_name} is empty, redownloading.")
         with open(file_full_path, "wb") as file:
@@ -178,4 +173,3 @@ def _download_file(url: str, file: BinaryIO) -> None:
     with requests.get(url) as response:
         downloaded_file = response.content
         file.write(downloaded_file)
-

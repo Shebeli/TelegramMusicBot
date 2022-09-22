@@ -1,10 +1,25 @@
 from typing import List, Union
-from aiohttp import ClientSession
-from bs4 import BeautifulSoup
+from enum import Enum
 
+from bs4 import BeautifulSoup
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from music_bot.scrap.models import Artist, Song
+
+
+class HTMLTagClass(Enum):
+    PAGE_INDEXES = "pnavifa fxmf"
+    ARTISTS = "rwr"
+    SONG_COVER = "cntfa"
+
+
+def last_page_number_extractor(bs: BeautifulSoup) -> int:
+    page_indexes_div = bs.find("div", class_=HTMLTagClass.PAGE_INDEXES.value)
+    if not page_indexes_div:
+        return None
+    last_page_url = page_indexes_div.find_all("a")[-1].attrs["href"]
+    last_page_number = last_page_url.split("/")[-2]
+    return int(last_page_number)
 
 
 def paginate_list(list_: List, page_size=10) -> List[List]:
@@ -55,6 +70,3 @@ def create_keyboard_page(
         ]
     keyboard_layout.append(line)
     return InlineKeyboardMarkup(keyboard_layout)
-
-
-

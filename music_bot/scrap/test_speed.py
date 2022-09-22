@@ -3,7 +3,7 @@ import pstats
 import time
 import asyncio
 
-from music_bot.scrap.scrap import get_artist, all_artist_songs_paginated
+from music_bot.scrap.scraper import get_artist, all_artist_songs_paginated
 
 
 async def main():

@@ -15,11 +15,10 @@ from music_bot.scrap.models import Artist, Song
 
 from music_bot.utils.utils import paginate_list, create_keyboard_page
 from music_bot.settings import TELEGRAM_BOT_TOKEN, SECRET_FILE_PATH, SAVE_DIR
-from music_bot.scrap.scrap import (
+from music_bot.scrap.scraper import (
     download_song,
     get_all_artists,
     get_artist,
-    validate_artist,
     all_artist_songs_paginated,
     cache,
 )
@@ -53,7 +52,7 @@ async def list_artists(update: Update, context: ContextTypes.DEFAULT_TYPE):
     all_artists_cache = cache.get(())
     if not all_artists_cache:
         await query.edit_message_text("در حال دریافت لیست خوانندگان ...")
-    artists = get_all_artists()
+    artists = await get_all_artists()
     paginated_artists = paginate_list(artists)
     requested_page = int(query.data.split("_")[-1])
     reply_markup = create_keyboard_page(paginated_artists, requested_page)
@@ -78,26 +77,27 @@ async def input_artist(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def set_artist_by_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    artist = query.data
+    artist: Artist = query.data
     context.user_data.update({"requested_artist": artist})
-    update.callback_query = None  # need explanation/refactor
     logger.info(
         {
             f"User {query.from_user.full_name} chose {context.user_data.get('requested_artist')} via callback."
         }
     )
+    update.callback_query = None  # the reason for this is to not trigger this function's callback query when calling it: list_artist_songs.
     await list_artist_songs(update, context)
     return SONG
 
 
 async def set_artist_by_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    artist = update.message.text
-    if not validate_artist(artist):
+    inputed_artist_name = update.message.text
+    artist = await get_artist(inputed_artist_name)
+    if not artist:
         await update.message.reply_text(
             "خواننده مورد نظر پیدا نشد. لطفا دوباره نام خواننده را وارد نمایید."
         )
         return ARTIST_SELECTION
-    context.user_data.update({"requested_artist": get_artist(artist)})
+    context.user_data.update({"requested_artist": artist})
     logger.info(
         {
             f"User {update.effective_user.full_name} chose {context.user_data.get('requested_artist')} via message input."
@@ -110,7 +110,7 @@ async def set_artist_by_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_artist_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query:
-        requested_page = int(query.data.split("_")[-1])
+        requested_page = int(query.data.split("_")[-1]) # query data sample: "page_3"
         await query.answer()
     else:
         requested_page = 1
@@ -119,7 +119,7 @@ async def list_artist_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     start_message = context.user_data.get("start_message")
     if not paginated_songs_cache:
         await start_message.edit_text(text="در حال دریافت لیست آهنگ ها ...")
-    paginated_songs = all_artist_songs_paginated(artist)
+    paginated_songs = await all_artist_songs_paginated(artist)
     reply_markup = create_keyboard_page(paginated_songs, requested_page)
     await start_message.edit_text(
         text=f"خواننده انتخاب شده:\n{artist.name}\nیک آهنگ را انتخاب کنید.",
@@ -135,12 +135,11 @@ async def download_selected_songs(update: Update, context: ContextTypes.DEFAULT_
         text="در حال دانلود آهنگ ..."
     )
     song: Song = query.data
-    user_name = update.effective_user.full_name
     try:
-        logger.info(f"User {user_name} requested to download song: {song.name}.")
-        file_paths = download_song(song=song, save_dir=SAVE_DIR)
+        logger.info(f"User {update.effective_user.full_name} requested to download song: {song.name}.")
+        file_paths = await download_song(song=song, save_dir=SAVE_DIR)
     except requests.exceptions.ChunkedEncodingError or requests.exceptions.SSLError:
-        logger.error(f"User {user_name} failed to download {song.name}.")
+        logger.error(f"User {update.effective_user.full_name} failed to download {song.name}.")
         await update.effective_chat.send_message(
             "دانلود به مشکل خورد لطفا دوباره سعی کنید!"
         )
@@ -160,9 +159,10 @@ async def send_selected_songs(
     for file_path in file_paths:
         with open(file_path, "rb") as file:
             logger.info(
-                f"Sending audio {file_path} to user {update.effective_user.full_name} "
+                f"Sending audio: {file_path} to user: {update.effective_user.full_name} "
             )
             await update.effective_chat.send_audio(file, write_timeout=2000)
+        logger.info(f"Audio: {file_path} was succesfully sent to user: {update.effective_user.full_name}" )
     if not context.user_data.get("download_inform"):
         await status_message.edit_text(
             text="آهنگ دانلود شد. \n میتوانید از لیست آهنگ هایی که هنوز در لیست بالا موجود هستند آهنگ دانلود کنید در غیر این صورت دکمه خروج را فشار دهید"
