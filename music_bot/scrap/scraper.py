@@ -65,8 +65,8 @@ async def all_artist_songs_paginated(artist: Artist) -> List[List[Song]]:
     bs = await _artist_bs(artist)
     last_page_number = last_page_number_extractor(bs)
     if not last_page_number:
-        page_songs = await get_artist_page_songs(artist)
-        return 
+        page_songs =  [await get_artist_page_songs(artist)]
+        return page_songs
     paginated_songs = await asyncio.gather(
         *[get_artist_page_songs(artist, i+1) for i in range(last_page_number)]
     )
