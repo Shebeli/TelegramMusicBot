@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{include = "musifa_bot"}]
 
 [tool.poetry.dependencies]
-python = "3.8.10"
+python = "3.10.7"
 beautifulsoup4 = "^4.11.1"
 python-telegram-bot = {version="^20.0a4", allow-prereleases = true}
 requests = "^2.28.1"
