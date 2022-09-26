@@ -1,1 +1,1 @@
-python3 music_bot/bot.py
+web: python3 music_bot/bot.py $PORT

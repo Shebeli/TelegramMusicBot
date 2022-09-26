@@ -1,6 +1,7 @@
 from typing import List
-import requests
+import os
 
+import requests
 from telegram import Update, Message, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -11,8 +12,8 @@ from telegram.ext import (
     ConversationHandler,
     CallbackQueryHandler,
 )
-from music_bot.scrap.models import Artist, Song
 
+from music_bot.scrap.models import Artist, Song
 from music_bot.utils.utils import paginate_list, create_keyboard_page
 from music_bot.settings import TELEGRAM_BOT_TOKEN, SECRET_FILE_PATH, SAVE_DIR
 from music_bot.scrap.scraper import (
@@ -24,6 +25,9 @@ from music_bot.scrap.scraper import (
 )
 from music_bot.logger import logger
 
+PORT = os.environ.get('PORT')
+if PORT:
+    port = int(PORT)
 ARTIST, SONG, ARTIST_SELECTION = range(3)
 
 
@@ -223,7 +227,16 @@ def main():
     secret_command = CommandHandler("secret", secret)
     application.add_handler(conv_handler)
     application.add_handler(secret_command)
-    application.run_polling()
+    if PORT:
+        print(PORT)
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=int(PORT),
+            url_path=TELEGRAM_BOT_TOKEN,
+            webhook_url="https://musicfa-bot.herokuapp.com/" + TELEGRAM_BOT_TOKEN
+        )
+    else:
+        application.run_polling()
 
 
 if __name__ == "__main__":
