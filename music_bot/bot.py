@@ -15,7 +15,7 @@ from telegram.ext import (
 
 from music_bot.scrap.models import Artist, Song
 from music_bot.utils.utils import paginate_list, create_keyboard_page
-from music_bot.settings import TELEGRAM_BOT_TOKEN, SECRET_FILE_PATH, SAVE_DIR
+from music_bot.settings import TELEGRAM_BOT_TOKEN, SAVE_DIR
 from music_bot.scrap.scraper import (
     download_song,
     get_all_artists,
@@ -177,11 +177,6 @@ async def send_selected_songs(
     return SONG
 
 
-async def secret(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_photo(
-        chat_id=update.effective_chat.id, photo=open(SECRET_FILE_PATH, "rb")
-    )
-
 
 async def exit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
@@ -224,9 +219,7 @@ def main():
             CommandHandler("exit", exit),
         ],
     )
-    secret_command = CommandHandler("secret", secret)
     application.add_handler(conv_handler)
-    application.add_handler(secret_command)
     if PORT:
         print(PORT)
         application.run_webhook(
